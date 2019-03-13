@@ -1,7 +1,7 @@
 import numpy as np
 import math
 import sys
-from sktime.transformers.Transformer import Transformer
+from transformers.Transformer import Transformer
 
 
 class BOSSTransform(Transformer):

@@ -1,4 +1,4 @@
-from sktime.transformers.BOSSTransformer import BOSSTransform
+from transformers.BOSSTransformer import BOSSTransform
 import numpy as np
 import random
 import sys
