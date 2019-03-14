@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import numpy as np
 from load_data import load_from_tsfile_to_dataframe
 from scipy.spatial.distance import sqeuclidean
@@ -21,16 +22,12 @@ from sklearn.base import TransformerMixin
 #        to the multi-variate case (should be fairly simple - done in Java, though not sure on the specifics/how
 #        complete it is and if we could use mutivariate data in other ways too
 # TO-DO: Currently extends TransformerMixin - class should extend the sktime transformer base class (not on dev at
-#        branch at time of writing however so this can be updated later)
+#        branch at time of writingclea however so this can be updated later)
 # TO-DO: Add a parameter to cap the number of shapelets to use in the final transform. Not done yet as we should
 #        look at the Java implementation to see what the default was. If there isn't one, we could use an
 #        arbitrary value such as 200 as a default? The limit would be after all shapelets are extracted and sorted
 #        in descending order of information gain (e.g. keep the top 200 shapelets, not the first 200 that
 #        were visited)
-# TO-DO: verbose output of time remaining for contract is currently in decimal format, e.g.:
-#        > Candidate finished. 0.418 minutes remaining.
-#        it would be nicer (but not that important) to convert this to mins:secs rather than a decimal for minutes
-#        e.g. 5:45 left, rather than 5.75
 
 class RandomShapeletTransform(TransformerMixin):
 
@@ -245,12 +242,14 @@ class RandomShapeletTransform(TransformerMixin):
                         time_now = time_taken()
                         if time_now > self.time_limit:
                             if self.verbose:
-                                print("time to stop! It's been "+str(round(time_now/60,3))+" minutes")
+                                print("Time to stop! It's been {0:02d}:{1:02}".format(int(round(time_now/60,3)), int((round(time_now/60,3) - int(round(time_now/60,3)))*60)))
+                                #print("time to stop! It's been "+str(round(time_now/60,3))+" minutes")
                             continue_extraction = False
                             break
                         else:
                             if self.verbose:
-                                print("Candidate finished. "+str(round((self.time_limit-time_now)/60,3))+" minutes remaining.")
+                                print("Candidate finished. {0:02d}:{1:02} remaining".format(int(round((self.time_limit-time_now)/60,3)), int((round((self.time_limit-time_now)/60,3) - int(round((self.time_limit-time_now)/60,3)))*60)))
+                                #print("Candidate finished. "+str(round((self.time_limit-time_now)/60,3))+" minutes remaining.")
 
                 # add shapelets from this series to the collection for all
                 all_shapelets.extend(series_shapelets)
@@ -336,7 +335,8 @@ class RandomShapeletTransform(TransformerMixin):
                     output[i][s] = np.float32(min_dist)
 
         end = time.time()
-        print("Time to transform: "+str(end-start))
+        print("Time to transform: {0:02d}:{1:02}".format(int(round((end-start)/60,3)), int((round((end-start)/60,3) - int(round((end-start)/60,3)))*60)))
+        #print("Time to transform: "+str(end-start))
         return output
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -452,12 +452,12 @@ class Shapelet:
 if __name__ == "__main__":
 
     dataset = "GunPoint"
-    train_x, train_y = load_from_tsfile_to_dataframe("C:/temp/sktime_temp_data/" + dataset + "/"+dataset + "_TRAIN.ts")
-    test_x, test_y = load_from_tsfile_to_dataframe("C:/temp/sktime_temp_data/" + dataset + "/"+dataset + "_TEST.ts")
+    train_x, train_y = load_from_tsfile_to_dataframe("/home/david/sktime-datasets/" + dataset + "/" + dataset + "_TRAIN.ts")
+    test_x, test_y = load_from_tsfile_to_dataframe("/home/david/sktime-datasets/" + dataset + "/" + dataset + "_TEST.ts")
 
     pipeline = Pipeline([
         # ('st', RandomShapeletTransform(min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=5, num_shapelets_to_sample_per_case=3)),
-        ('st', ContractedRandomShapeletTransform(time_limit_in_mins=1, min_shapelet_length=10, max_shapelet_length=12, initial_num_shapelets_per_case=3, verbose=True)),
+        ('st', ContractedRandomShapeletTransform(time_limit_in_mins=0.2, min_shapelet_length=10, max_shapelet_length=12, initial_num_shapelets_per_case=3, verbose=True)),
         ('rf', RandomForestClassifier()),
     ])
     start = time.time()
@@ -466,11 +466,13 @@ if __name__ == "__main__":
     preds = pipeline.predict(test_x)
     end_test = time.time()
 
-    print("Results:")
-    print("Correct:")
+    print("Results:\nPerformance:")
     correct = sum(preds == test_y)
-    print("\t"+str(correct)+"/"+str(len(test_y)))
-    print("\t"+str(correct/len(test_y))+"%")
+    print("\t{0}/{1} -> {2:0.3f}%%".format(correct, len(test_y), (correct/len(test_y))*100))
+    #print("\t"+str(correct)+"/"+str(len(test_y)))
+    #print("\t"+str(correct/len(test_y))+"%")
     print("\nTiming:")
-    print("\tTo build:   "+str(end_build-start)+" secs")
-    print("\tTo predict: "+str(end_test-end_build)+" secs")
+    print("\tTo build: {0:02d}:{1:02}".format(int(round((end_build-start)/60,3)), int((round((end_build-start)/60,3) - int(round((end_build-start)/60,3)))*60)))
+    print("\tTo predict: {0:02d}:{1:02}".format(int(round((end_test-end_build)/60,3)), int((round((end_test-end_build)/60,3) - int(round((end_test-end_build)/60,3)))*60)))
+    #print("\tTo build:   "+str(end_build-start)+" secs")
+    #print("\tTo predict: "+str(end_test-end_build)+" secs")
