@@ -11,10 +11,6 @@ from sklearn.base import TransformerMixin
 #        before everything has been fully verified)
 # TO-DO: check the validity of the binary info gain method and implement the early abandon as
 #        in original shapelet paper (not possible for non-binary IG however)
-# TO-DO: revisit contract timing - currently it's lazy (will process the last shapelet and go over the limit)
-#        A more sensible approach would be to estimate the average/median/max shapelet calculation time and
-#        only process a new candidate if there is enough time left. Max would be safest but most conservative
-#        estimate, mean is easiest to calculate without storing/sorting run-times. Investigation req.
 # TO-DO: Random and ContractedRandom transforms use all of the same logic but have different class types for
 #        distinctions (Contracted extends Random with flags to set). However, Tony would now prefer to have a
 #        single class with a flag for contract or not, so code should be refactored into a single class
@@ -130,6 +126,10 @@ class RandomShapeletTransform(TransformerMixin):
         # a flag to indicate if extraction should stop (either contract has ended or we've visited all required cases)
         continue_extraction = True
 
+        # max time calculating a shapelet
+        max_time_calc_shapelet = -1
+        time_last_shapelet = time_taken()
+        
         idx = 0
         while continue_extraction:
             for series_id_and_class in idxs_to_sample:
@@ -238,18 +238,23 @@ class RandomShapeletTransform(TransformerMixin):
 
                     series_shapelets.append(Shapelet(series_id, candidate_info[0], candidate_info[1], quality, candidate))
 
+
+
+                    # Takes into account the use of the MAX shapelet calculation to don't exceed the time_limit.
                     if self.time_limit_on:
                         time_now = time_taken()
-                        if time_now > self.time_limit:
+                        time_actual_shapelet = (time_now - time_last_shapelet)
+                        if time_actual_shapelet > max_time_calc_shapelet:
+                            max_time_calc_shapelet = time_actual_shapelet
+                        time_last_shapelet = time_now
+                        if (time_now + max_time_calc_shapelet) > self.time_limit:
                             if self.verbose:
-                                print("Time to stop! It's been {0:02d}:{1:02}".format(int(round(time_now/60,3)), int((round(time_now/60,3) - int(round(time_now/60,3)))*60)))
-                                #print("time to stop! It's been "+str(round(time_now/60,3))+" minutes")
+                                print("No more time available! It's been {0:02d}:{1:02}".format(int(round(time_now/60,3)), int((round(time_now/60,3) - int(round(time_now/60,3)))*60)))
                             continue_extraction = False
                             break
                         else:
                             if self.verbose:
                                 print("Candidate finished. {0:02d}:{1:02} remaining".format(int(round((self.time_limit-time_now)/60,3)), int((round((self.time_limit-time_now)/60,3) - int(round((self.time_limit-time_now)/60,3)))*60)))
-                                #print("Candidate finished. "+str(round((self.time_limit-time_now)/60,3))+" minutes remaining.")
 
                 # add shapelets from this series to the collection for all
                 all_shapelets.extend(series_shapelets)
@@ -444,7 +449,8 @@ class Shapelet:
         self.data = data
 
     def __str__(self):
-        return "series id: " + str(self.series_id) + ", start_pos: " + str(self.start_pos) + ", length: " + str(self.length) + ", info_gain: " + str(self.info_gain) + ", data: " + str(self.data)
+        return "Series ID: {0}, start_pos: {1}, length: {2}, info_gain: {3}, data: {4}.".format(self.series_id, self.start_pos, self.length, self.info_gain, self.data)
+        #return "series id: " + str(self.series_id) + ", start_pos: " + str(self.start_pos) + ", length: " + str(self.length) + ", info_gain: " + str(self.info_gain) + ", data: " + str(self.data)
 
 
 
@@ -456,7 +462,7 @@ if __name__ == "__main__":
     test_x, test_y = load_from_tsfile_to_dataframe("/home/david/sktime-datasets/" + dataset + "/" + dataset + "_TEST.ts")
 
     pipeline = Pipeline([
-        # ('st', RandomShapeletTransform(min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=5, num_shapelets_to_sample_per_case=3)),
+        #('st', RandomShapeletTransform(min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=5, num_shapelets_to_sample_per_case=3)),
         ('st', ContractedRandomShapeletTransform(time_limit_in_mins=0.2, min_shapelet_length=10, max_shapelet_length=12, initial_num_shapelets_per_case=3, verbose=True)),
         ('rf', RandomForestClassifier()),
     ])
