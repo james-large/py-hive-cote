@@ -11,9 +11,6 @@ from sklearn.base import TransformerMixin
 #        before everything has been fully verified)
 # TO-DO: check the validity of the binary info gain method and implement the early abandon as
 #        in original shapelet paper (not possible for non-binary IG however)
-# TO-DO: Random and ContractedRandom transforms use all of the same logic but have different class types for
-#        distinctions (Contracted extends Random with flags to set). However, Tony would now prefer to have a
-#        single class with a flag for contract or not, so code should be refactored into a single class
 # TO-DO: Transform currently only for univariate data - once all of the above is reconciled we should extend
 #        to the multi-variate case (should be fairly simple - done in Java, though not sure on the specifics/how
 #        complete it is and if we could use mutivariate data in other ways too
@@ -25,13 +22,16 @@ from sklearn.base import TransformerMixin
 #        in descending order of information gain (e.g. keep the top 200 shapelets, not the first 200 that
 #        were visited)
 
+# Single class for both contracted or not.
 class RandomShapeletTransform(TransformerMixin):
-
+    
     def __init__(self,
+                 type_shapelet = 'Contracted',
                  min_shapelet_length = 3,
                  max_shapelet_length = np.inf,
                  num_cases_to_sample = 5,
                  num_shapelets_to_sample_per_case = 15,
+                 time_limit_in_mins = 60.0,
                  seed = 0,
                  dim_to_use = 0,
                  remove_self_similar = True,
@@ -40,20 +40,31 @@ class RandomShapeletTransform(TransformerMixin):
                  trim_shapelets = True,
                  num_shapelets_to_trim_to = 200
                  ):
+        
+        self.type_shapelet = type_shapelet
         self.min_shapelet_length = min_shapelet_length
         self.max_shapelet_length = max_shapelet_length
-        self.num_cases_to_sample = num_cases_to_sample
         self.num_shapelets_to_sample_per_case = num_shapelets_to_sample_per_case
         self.seed = seed
         self.dim_to_use = dim_to_use
         self.remove_self_similar = remove_self_similar
         self.shapelets = None
-        self.time_limit_on = False
-        self.time_limit = np.inf
         self.verbose = verbose
         self.use_binary_info_gain = use_binary_info_gain
         self.trim_shapelets = trim_shapelets
         self.num_shapelets_to_trim_to = num_shapelets_to_trim_to
+        
+        # Init in case of ContractedRandomShapeletTransform
+        if self.type_shapelet == 'Contracted':
+            self.num_cases_to_sample = -1
+            self.time_limit_on = True
+            self.time_limit = 60*time_limit_in_mins
+            
+        # Init in case of RandomShapeletTransform
+        elif self.type_shapelet == 'Random':
+            self.num_cases_to_sample = num_cases_to_sample
+            self.time_limit_on = False
+            self.time_limit = np.inf
 
     def fit(self, X, y, **fit_params):
         X = np.array([np.asarray(x) for x in X.iloc[:, self.dim_to_use]])
@@ -240,7 +251,7 @@ class RandomShapeletTransform(TransformerMixin):
 
 
 
-                    # Takes into account the use of the MAX shapelet calculation to don't exceed the time_limit.
+                    # Takes into account the use of the MAX shapelet calculation time to don't exceed the time_limit.
                     if self.time_limit_on:
                         time_now = time_taken()
                         time_actual_shapelet = (time_now - time_last_shapelet)
@@ -341,7 +352,6 @@ class RandomShapeletTransform(TransformerMixin):
 
         end = time.time()
         print("Time to transform: {0:02d}:{1:02}".format(int(round((end-start)/60,3)), int((round((end-start)/60,3) - int(round((end-start)/60,3)))*60)))
-        #print("Time to transform: "+str(end-start))
         return output
 
     def fit_transform(self, X, y=None, **fit_params):
@@ -409,37 +419,6 @@ class RandomShapeletTransform(TransformerMixin):
         else:
             return (a - mns) / sstd
 
-
-class ContractedRandomShapeletTransform(RandomShapeletTransform):
-    def __init__(self,
-                 min_shapelet_length=3,
-                 max_shapelet_length=np.inf,
-                 initial_num_shapelets_per_case=15,
-                 time_limit_in_mins = 60.0,
-                 seed=0,
-                 dim_to_use=0,
-                 remove_self_similar=True,
-                 verbose=False,
-                 use_binary_info_gain=True,
-                 trim_shapelets = True,
-                 num_shapelets_to_trim_to = 200
-                 ):
-
-        self.time_limit_on = True
-        self.time_limit = 60*time_limit_in_mins
-        self.min_shapelet_length = min_shapelet_length
-        self.max_shapelet_length = max_shapelet_length
-        self.num_cases_to_sample = -1
-        self.num_shapelets_to_sample_per_case = initial_num_shapelets_per_case
-        self.seed = seed
-        self.dim_to_use = dim_to_use
-        self.remove_self_similar = remove_self_similar
-        self.shapelets = None
-        self.verbose = verbose
-        self.use_binary_info_gain = use_binary_info_gain
-        self.trim_shapelets = trim_shapelets
-        self.num_shapelets_to_trim_to = num_shapelets_to_trim_to
-
 class Shapelet:
     def __init__(self, series_id, start_pos, length, info_gain, data):
         self.series_id = series_id
@@ -450,8 +429,6 @@ class Shapelet:
 
     def __str__(self):
         return "Series ID: {0}, start_pos: {1}, length: {2}, info_gain: {3}, data: {4}.".format(self.series_id, self.start_pos, self.length, self.info_gain, self.data)
-        #return "series id: " + str(self.series_id) + ", start_pos: " + str(self.start_pos) + ", length: " + str(self.length) + ", info_gain: " + str(self.info_gain) + ", data: " + str(self.data)
-
 
 
 
@@ -462,8 +439,8 @@ if __name__ == "__main__":
     test_x, test_y = load_from_tsfile_to_dataframe("/home/david/sktime-datasets/" + dataset + "/" + dataset + "_TEST.ts")
 
     pipeline = Pipeline([
-        #('st', RandomShapeletTransform(min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=5, num_shapelets_to_sample_per_case=3)),
-        ('st', ContractedRandomShapeletTransform(time_limit_in_mins=0.2, min_shapelet_length=10, max_shapelet_length=12, initial_num_shapelets_per_case=3, verbose=True)),
+        ('st', RandomShapeletTransform(type_shapelet="Random", min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=5, num_shapelets_to_sample_per_case=3)),
+        #('st', RandomShapeletTransform(type_shapelet="Contracted", time_limit_in_mins=0.2, min_shapelet_length=10, max_shapelet_length=12, num_shapelets_to_sample_per_case=3, verbose=True)),
         ('rf', RandomForestClassifier()),
     ])
     start = time.time()
@@ -474,11 +451,9 @@ if __name__ == "__main__":
 
     print("Results:\nPerformance:")
     correct = sum(preds == test_y)
-    print("\t{0}/{1} -> {2:0.3f}%%".format(correct, len(test_y), (correct/len(test_y))*100))
-    #print("\t"+str(correct)+"/"+str(len(test_y)))
-    #print("\t"+str(correct/len(test_y))+"%")
+    print("\t{0}/{1} -> {2:0.3f}%".format(correct, len(test_y), (correct/len(test_y))*100))
+
     print("\nTiming:")
     print("\tTo build: {0:02d}:{1:02}".format(int(round((end_build-start)/60,3)), int((round((end_build-start)/60,3) - int(round((end_build-start)/60,3)))*60)))
     print("\tTo predict: {0:02d}:{1:02}".format(int(round((end_test-end_build)/60,3)), int((round((end_test-end_build)/60,3) - int(round((end_test-end_build)/60,3)))*60)))
-    #print("\tTo build:   "+str(end_build-start)+" secs")
-    #print("\tTo predict: "+str(end_test-end_build)+" secs")
+
