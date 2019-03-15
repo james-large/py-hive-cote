@@ -3,13 +3,9 @@ import os
 import numpy as np
 import time
 import sys
-from sktime.classifiers.dictionary_based import BOSS
-from sktime.classifiers.time_domain_classification import RotationForest as rf
-from sktime.classifiers.ensemble import TimeSeriesForestClassifier
-from sktime.transformers.series_to_tabular import RandomIntervalFeatureExtractor
-from sktime.pipeline import TSPipeline
-from sklearn.tree import DecisionTreeClassifier
-import sktime.classifiers.interval_based.TimeSeriesForest as tsf
+from classifiers.dictionary_based import BOSS
+from classifiers.time_domain_classification import RotationForest as rf
+import classifiers.interval_based.TimeSeriesForest as tsf
 
 
 def time_series_slope(y):
@@ -22,9 +18,7 @@ def time_series_slope(y):
         return (((x * y).mean() - x_mu * y.mean())
                 / ((x ** 2).mean() - x_mu ** 2))
 
-
-
-def testOneProblem(dataset_name):
+def oneProblemTest(dataset_name):
     problem_path = "E:/TSCProblems/"
     results_path="E:/Results/Python/"
     suffix = "_TRAIN.arff"
@@ -41,7 +35,6 @@ def testOneProblem(dataset_name):
     print(correct)
     ac=correct/pred_y.__len__()
     print(ac)
-
 
 
 def defaultTrainTestFold(classifier, dataset_name, results_path, problem_path):
@@ -111,28 +104,26 @@ def defaultTrainTestFold(classifier, dataset_name, results_path, problem_path):
 
 if __name__ == "__main__":
 
-    cls = sys.argv[1]
-    problem = sys.argv[2]
-    dataDir = sys.argv[3]
-    resultsDir = sys.argv[4]
+    if len(sys.argv) >= 5:
+        cls = sys.argv[1]
+        problem = sys.argv[2]
+        dataDir = sys.argv[3]
+        resultsDir = sys.argv[4]
+    else:
+        cls = "BOSSPY"
+        problem = "ItalyPowerDemand"
+        dataDir = "Z:/Data/TSCProblems2018/"
+        resultsDir = "Z:/Results/Python/"
 
     print(problem)
-    if cls=="RotF":
+    if cls == "RotF":
         classifier = rf.RotationForest(n_estimators=200)
-    if cls == "TSF_Tony":
+    elif cls == "TSF_Tony":
         classifier = tsf.TimeSeriesForest(n_trees=500)
-    elif cls == "TSF_Marcus":
-        features = [np.mean, np.std, time_series_slope]
-        steps = [('transform', RandomIntervalFeatureExtractor(n_intervals='sqrt', features=features)),
-                 ('clf', DecisionTreeClassifier())]
-        base_estimator = TSPipeline(steps)
-        classifier = TimeSeriesForestClassifier(base_estimator=base_estimator,
-                                                criterion='entropy',
-                                                n_estimators=500,
-                                                bootstrap=False,
-                                                oob_score=False,
-                                                n_jobs=1)
-    if cls == "BOSSPY":
+    elif cls == "BOSSPY":
         classifier = BOSS.BOSSClassifier()
+    else:
+        print("Invalid Classifier: " + cls)
+        exit()
 
     defaultTrainTestFold(classifier, problem, resultsDir + cls + "/Predictions/", dataDir)
