@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 import numpy as np
 from load_data import load_from_tsfile_to_dataframe
-from scipy.spatial.distance import sqeuclidean, _validate_vector
 import time
 from sklearn.ensemble.forest import RandomForestClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.base import TransformerMixin
+from operator import itemgetter
+from collections import Counter
 
 # TO-DO: thorough testing (some initial testing completed, but passing the code to David to develop
 #        before everything has been fully verified)
@@ -176,12 +177,16 @@ class RandomShapeletTransform(TransformerMixin):
                 cand_idx = list(rand.choice(list(range(0,len(candidate_starts_and_lens))), self.num_shapelets_to_sample_per_case, replace=False))
                 cands = [candidate_starts_and_lens[x] for x in cand_idx]
 
+                
                 # evaluate each candidate
                 for candidate_info in cands:
                     # for convenience, extract candidate data from series_id and znorm it
                     candidate = X[series_id][candidate_info[0]:candidate_info[0]+candidate_info[1]]
 
                     candidate = RandomShapeletTransform.zscore(candidate)
+                    
+                    # best so far quality found for candidate_info
+                    bsf_quality = -1
 
                     # now go through all other series and get a distance from the candidate to each
                     loop_dists = []
@@ -199,6 +204,11 @@ class RandomShapeletTransform(TransformerMixin):
                             # for loop vs list comprehension
                             # loop
                             
+                            binary_class_counts = {
+                                series_id_and_class[1] :  class_counts[series_id_and_class[1]],
+                                'otherClassForBinary' : num_ins-class_counts[series_id_and_class[1]]
+                            }
+                            
                             for start in range(0, len(comparison)-candidate_info[1]):
                                 comp = X[i][start:start+candidate_info[1]]
 
@@ -208,11 +218,6 @@ class RandomShapeletTransform(TransformerMixin):
 
                                 if (dist < min_dist):
                                     min_dist = dist
-                                
-#                                dist = sqeuclidean(candidate, comp)
-#                                
-#                                if(dist < min_dist):
-#                                    min_dist=dist
                                     
                             if self.use_binary_info_gain:
                                 # if doing binary info gain we need to make it a 1 vs all encoding
@@ -222,10 +227,17 @@ class RandomShapeletTransform(TransformerMixin):
                                 # else, the series came from another class so combine into an "other" class:
                                 else:
                                     loop_dists.append((min_dist, 'otherClassForBinary'))
+                                    
+                                #Aquí hay que calcular si interesa continuar calculando distancias.
+                                stop, quality = self.avoid_calc_info_gain(bsf_quality, loop_dists, binary_class_counts, num_ins)
+                                if stop:
+                                    break
+                                else:
+                                    bsf_quality = quality
 
                             else:
                                 loop_dists.append((min_dist,y[i]))
-
+                            
                             #lc - does the same as above without a for loop
                             # a = np.min([sqeuclidean(candidate, zscore(X[i][start:start + candidate_info[1]])) for start in range(0, len(comparison) - candidate_info[1])])
                             # loop_dists.append((a, y[i]))
@@ -250,11 +262,12 @@ class RandomShapeletTransform(TransformerMixin):
                         }
 
                         # we can then simply reuse the info gain calculation without editing, but..
-                        # TO-DO: implement early abandon info gain for 2 classes, as per the original Ye and Keogh shapelet paper
+                        # TO-DO: implement early abandon info gain for 2 classes, as per the original Ye and Keogh shapelet paper                        
+                        
                         quality = self.calc_info_gain(loop_dists, binary_class_counts, num_ins)
                     else:
                         # otherwise calculate information gain for all classes vs all
-                        quality = self.calc_info_gain(loop_dists, class_counts, num_ins,)
+                        quality = self.calc_info_gain(loop_dists, class_counts, num_ins)
 
                     series_shapelets.append(Shapelet(series_id, candidate_info[0], candidate_info[1], quality, candidate))
 
@@ -350,10 +363,12 @@ class RandomShapeletTransform(TransformerMixin):
                 for start_pos in range(0, len(this_series) - this_shapelet_length):
                     comp = this_series[start_pos:start_pos + this_shapelet_length]
                     comp = RandomShapeletTransform.zscore(comp)
+                    
+                    dist = RandomShapeletTransform.euclideanDistanceEarlyAbandon(self.shapelets[s].data, comp, min_dist)
 
-                    dist = sqeuclidean(self.shapelets[s].data, comp)
-                    if dist < min_dist:
+                    if (dist < min_dist):
                         min_dist = dist
+                        
                 try:
                     output[i][s] = min_dist.astype(np.float32)
                 except Exception:
@@ -408,7 +423,41 @@ class RandomShapeletTransform(TransformerMixin):
                 max_ig = together
 
         return max_ig
+    
+    @staticmethod
+    def avoid_calc_info_gain(bsf_quality, loop_dists, binary_class_counts, num_ins):
 
+        minEnd = 0
+        maxEnd = max(loop_dists,key=itemgetter(1))[0]+1
+        pred_dist_hist = loop_dists.copy()
+        
+        contador_first_class = Counter(elem[1] for elem in loop_dists)
+        for i in range(0, (list(binary_class_counts.values())[0]-contador_first_class[list(binary_class_counts.keys())[0]])):
+            pred_dist_hist.append((minEnd, list(binary_class_counts.keys())[0]))
+            
+        contador_second_class = Counter(elem[1] for elem in loop_dists)
+        for i in range(0, (list(binary_class_counts.values())[1]-contador_second_class[list(binary_class_counts.keys())[1]])):
+            pred_dist_hist.append((maxEnd, list(binary_class_counts.keys())[1]))
+        
+        quality = RandomShapeletTransform.calc_info_gain(pred_dist_hist, binary_class_counts, num_ins)
+        if quality > bsf_quality:
+            return False, quality
+        
+        pred_dist_hist = loop_dists.copy()
+        contador_first_class = Counter(elem[1] for elem in loop_dists)
+        for i in range(0, (list(binary_class_counts.values())[0]-contador_first_class[list(binary_class_counts.keys())[0]])):
+            pred_dist_hist.append((maxEnd, list(binary_class_counts.keys())[0]))
+            
+        contador_second_class = Counter(elem[1] for elem in loop_dists)
+        for i in range(0, (list(binary_class_counts.values())[1]-contador_second_class[list(binary_class_counts.keys())[1]])):
+            pred_dist_hist.append((minEnd, list(binary_class_counts.keys())[1]))
+            
+        quality = RandomShapeletTransform.calc_info_gain(pred_dist_hist, binary_class_counts, num_ins)
+        if quality > bsf_quality:
+            return False, quality
+        
+        return True, -1
+    
     @staticmethod
     def zscore(a, axis=0, ddof=0):
         """
@@ -453,12 +502,13 @@ class Shapelet:
 
 
 if __name__ == "__main__":
+    tiempo_comienzo = time.time()
     dataset = "GunPoint"
     train_x, train_y = load_from_tsfile_to_dataframe("/home/david/sktime-datasets/" + dataset + "/" + dataset + "_TRAIN.ts")
     test_x, test_y = load_from_tsfile_to_dataframe("/home/david/sktime-datasets/" + dataset + "/" + dataset + "_TEST.ts")
 
     pipeline = Pipeline([
-        ('st', RandomShapeletTransform(type_shapelet="Random", min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=10, num_shapelets_to_sample_per_case=3, verbose=True)),
+        ('st', RandomShapeletTransform(type_shapelet="Random", min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=5, num_shapelets_to_sample_per_case=3, verbose=True)),
         #('st', RandomShapeletTransform(type_shapelet="Contracted", time_limit_in_mins=0.2, min_shapelet_length=10, max_shapelet_length=12, num_shapelets_to_sample_per_case=3, verbose=True)),
         ('rf', RandomForestClassifier(random_state=0)),
     ])
@@ -475,4 +525,5 @@ if __name__ == "__main__":
     print("\nTiming:")
     print("\tTo build: {0:02d}:{1:02}".format(int(round((end_build-start)/60,3)), int((round((end_build-start)/60,3) - int(round((end_build-start)/60,3)))*60)))
     print("\tTo predict: {0:02d}:{1:02}".format(int(round((end_test-end_build)/60,3)), int((round((end_test-end_build)/60,3) - int(round((end_test-end_build)/60,3)))*60)))
-
+    
+    print("Tiempo usado: {0}".format(time.time()-tiempo_comienzo))
