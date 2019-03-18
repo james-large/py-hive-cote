@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 from load_data import load_from_tsfile_to_dataframe
-from scipy.spatial.distance import sqeuclidean
+from scipy.spatial.distance import sqeuclidean, _validate_vector
 import time
 from sklearn.ensemble.forest import RandomForestClassifier
 from sklearn.pipeline import Pipeline
@@ -9,18 +9,20 @@ from sklearn.base import TransformerMixin
 
 # TO-DO: thorough testing (some initial testing completed, but passing the code to David to develop
 #        before everything has been fully verified)
+
 # TO-DO: check the validity of the binary info gain method and implement the early abandon as
 #        in original shapelet paper (not possible for non-binary IG however)
+
 # TO-DO: Transform currently only for univariate data - once all of the above is reconciled we should extend
 #        to the multi-variate case (should be fairly simple - done in Java, though not sure on the specifics/how
 #        complete it is and if we could use mutivariate data in other ways too
-# TO-DO: Currently extends TransformerMixin - class should extend the sktime transformer base class (not on dev at
-#        branch at time of writingclea however so this can be updated later)
 # TO-DO: Add a parameter to cap the number of shapelets to use in the final transform. Not done yet as we should
 #        look at the Java implementation to see what the default was. If there isn't one, we could use an
 #        arbitrary value such as 200 as a default? The limit would be after all shapelets are extracted and sorted
 #        in descending order of information gain (e.g. keep the top 200 shapelets, not the first 200 that
 #        were visited)
+# TO-DO: Currently extends TransformerMixin - class should extend the sktime transformer base class (not on dev at
+#        branch at time of writing however so this can be updated later)
 
 # Single class for both contracted or not.
 class RandomShapeletTransform(TransformerMixin):
@@ -148,7 +150,7 @@ class RandomShapeletTransform(TransformerMixin):
                 idx+=1
                 if self.verbose:
                     if self.time_limit_on is False:
-                        print("visiting series: "+str(series_id)+" (#"+str(idx)+"/"+str(self.cases_to_sample)+")")
+                        print("visiting series: "+str(series_id)+" (#"+str(idx)+"/"+str(cases_to_sample)+")")
                     else:
                         print("visiting series: "+str(series_id)+" (#"+str(idx)+")")
                 this_series_len = len(X[series_id])
@@ -179,16 +181,15 @@ class RandomShapeletTransform(TransformerMixin):
                     # for convenience, extract candidate data from series_id and znorm it
                     candidate = X[series_id][candidate_info[0]:candidate_info[0]+candidate_info[1]]
 
-
                     candidate = RandomShapeletTransform.zscore(candidate)
-
 
                     # now go through all other series and get a distance from the candidate to each
                     loop_dists = []
                     for i in range(0,len(X)):
                         # don't calculate distance to self
                         if i != series_id:
-
+                            
+                            # Min distance between shapelet and comp ever known.
                             min_dist = np.inf
                             comparison = X[i] # comparison series
 
@@ -197,14 +198,22 @@ class RandomShapeletTransform(TransformerMixin):
 
                             # for loop vs list comprehension
                             # loop
+                            
                             for start in range(0, len(comparison)-candidate_info[1]):
                                 comp = X[i][start:start+candidate_info[1]]
 
                                 comp = RandomShapeletTransform.zscore(comp)
 
-                                dist = sqeuclidean(candidate, comp)
-                                if dist < min_dist:
+                                dist = RandomShapeletTransform.euclideanDistanceEarlyAbandon(candidate, comp, min_dist)
+
+                                if (dist < min_dist):
                                     min_dist = dist
+                                
+#                                dist = sqeuclidean(candidate, comp)
+#                                
+#                                if(dist < min_dist):
+#                                    min_dist=dist
+                                    
                             if self.use_binary_info_gain:
                                 # if doing binary info gain we need to make it a 1 vs all encoding
                                 # if this series is from the same class as the candidate, add to the orderline with the class value
@@ -289,7 +298,7 @@ class RandomShapeletTransform(TransformerMixin):
 
         # for x in all_shapelets:
         #     print(x)
-
+        #print("Mejor EARLY: {0}\nMejor NORMAL:{1}".format(sum_ABANDON, sum_NORMAL))
         self.shapelets = all_shapelets
 
     # two "self-similar" shapelets are subsequences from the same series that are overlapping. This method
@@ -418,6 +427,17 @@ class RandomShapeletTransform(TransformerMixin):
                     np.expand_dims(sstd, axis=axis))
         else:
             return (a - mns) / sstd
+        
+    @staticmethod
+    def euclideanDistanceEarlyAbandon(u, v, min_dist):
+        sum_dist = 0
+        for i in range(0, len(u)):
+            u_v = u[i]-v[i]
+            sum_dist += np.dot(u_v, u_v)
+            if sum_dist >= min_dist:
+                # The distance is higher, so early abandon.
+                break
+        return sum_dist
 
 class Shapelet:
     def __init__(self, series_id, start_pos, length, info_gain, data):
@@ -433,15 +453,14 @@ class Shapelet:
 
 
 if __name__ == "__main__":
-
     dataset = "GunPoint"
     train_x, train_y = load_from_tsfile_to_dataframe("/home/david/sktime-datasets/" + dataset + "/" + dataset + "_TRAIN.ts")
     test_x, test_y = load_from_tsfile_to_dataframe("/home/david/sktime-datasets/" + dataset + "/" + dataset + "_TEST.ts")
 
     pipeline = Pipeline([
-        ('st', RandomShapeletTransform(type_shapelet="Random", min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=5, num_shapelets_to_sample_per_case=3)),
+        ('st', RandomShapeletTransform(type_shapelet="Random", min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=10, num_shapelets_to_sample_per_case=3, verbose=True)),
         #('st', RandomShapeletTransform(type_shapelet="Contracted", time_limit_in_mins=0.2, min_shapelet_length=10, max_shapelet_length=12, num_shapelets_to_sample_per_case=3, verbose=True)),
-        ('rf', RandomForestClassifier()),
+        ('rf', RandomForestClassifier(random_state=0)),
     ])
     start = time.time()
     pipeline.fit(train_x, train_y)
