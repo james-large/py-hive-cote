@@ -8,20 +8,18 @@ from sklearn.base import TransformerMixin
 from operator import itemgetter
 from collections import Counter
 
-# TO-DO: thorough testing (some initial testing completed, but passing the code to David to develop
-#        before everything has been fully verified)
 
-# TO-DO: check the validity of the binary info gain method and implement the early abandon as
-#        in original shapelet paper (not possible for non-binary IG however)
-
-# TO-DO: Transform currently only for univariate data - once all of the above is reconciled we should extend
-#        to the multi-variate case (should be fairly simple - done in Java, though not sure on the specifics/how
-#        complete it is and if we could use mutivariate data in other ways too
 # TO-DO: Add a parameter to cap the number of shapelets to use in the final transform. Not done yet as we should
 #        look at the Java implementation to see what the default was. If there isn't one, we could use an
 #        arbitrary value such as 200 as a default? The limit would be after all shapelets are extracted and sorted
 #        in descending order of information gain (e.g. keep the top 200 shapelets, not the first 200 that
 #        were visited)
+
+# TO-DO: thorough testing (some initial testing completed, but passing the code to David to develop
+#        before everything has been fully verified)
+# TO-DO: Transform currently only for univariate data - once all of the above is reconciled we should extend
+#        to the multi-variate case (should be fairly simple - done in Java, though not sure on the specifics/how
+#        complete it is and if we could use mutivariate data in other ways too
 # TO-DO: Currently extends TransformerMixin - class should extend the sktime transformer base class (not on dev at
 #        branch at time of writing however so this can be updated later)
 
@@ -204,11 +202,6 @@ class RandomShapeletTransform(TransformerMixin):
                             # for loop vs list comprehension
                             # loop
                             
-                            binary_class_counts = {
-                                series_id_and_class[1] :  class_counts[series_id_and_class[1]],
-                                'otherClassForBinary' : num_ins-class_counts[series_id_and_class[1]]
-                            }
-                            
                             for start in range(0, len(comparison)-candidate_info[1]):
                                 comp = X[i][start:start+candidate_info[1]]
 
@@ -220,6 +213,10 @@ class RandomShapeletTransform(TransformerMixin):
                                     min_dist = dist
                                     
                             if self.use_binary_info_gain:
+                                binary_class_counts = {
+                                    series_id_and_class[1] :  class_counts[series_id_and_class[1]],
+                                    'otherClassForBinary' : num_ins-class_counts[series_id_and_class[1]]
+                                }
                                 # if doing binary info gain we need to make it a 1 vs all encoding
                                 # if this series is from the same class as the candidate, add to the orderline with the class value
                                 if y[i]==series_id_and_class[1]:
@@ -228,7 +225,7 @@ class RandomShapeletTransform(TransformerMixin):
                                 else:
                                     loop_dists.append((min_dist, 'otherClassForBinary'))
                                     
-                                #Aquí hay que calcular si interesa continuar calculando distancias.
+                                # could the best found so far IG be beated? If stop, no, so we stop here.
                                 stop, quality = self.avoid_calc_info_gain(bsf_quality, loop_dists, binary_class_counts, num_ins)
                                 if stop:
                                     break
@@ -252,20 +249,8 @@ class RandomShapeletTransform(TransformerMixin):
                             # time = 7.173776388168335
 
                     loop_dists.sort(key=lambda tup: tup[0])
-
-                    if self.use_binary_info_gain:
-                        # add the class counts of the current class to the dictionary
-                        # and then add num_ins-class_counts[series_id_and_class[1]] to an "other" class
-                        binary_class_counts = {
-                            series_id_and_class[1] :  class_counts[series_id_and_class[1]],
-                            'otherClassForBinary' : num_ins-class_counts[series_id_and_class[1]]
-                        }
-
-                        # we can then simply reuse the info gain calculation without editing, but..
-                        # TO-DO: implement early abandon info gain for 2 classes, as per the original Ye and Keogh shapelet paper                        
-                        
-                        quality = self.calc_info_gain(loop_dists, binary_class_counts, num_ins)
-                    else:
+                    
+                    if not self.use_binary_info_gain:
                         # otherwise calculate information gain for all classes vs all
                         quality = self.calc_info_gain(loop_dists, class_counts, num_ins)
 
@@ -311,7 +296,6 @@ class RandomShapeletTransform(TransformerMixin):
 
         # for x in all_shapelets:
         #     print(x)
-        #print("Mejor EARLY: {0}\nMejor NORMAL:{1}".format(sum_ABANDON, sum_NORMAL))
         self.shapelets = all_shapelets
 
     # two "self-similar" shapelets are subsequences from the same series that are overlapping. This method
@@ -426,31 +410,22 @@ class RandomShapeletTransform(TransformerMixin):
     
     @staticmethod
     def avoid_calc_info_gain(bsf_quality, loop_dists, binary_class_counts, num_ins):
-
         minEnd = 0
         maxEnd = max(loop_dists,key=itemgetter(1))[0]+1
-        pred_dist_hist = loop_dists.copy()
         
-        contador_first_class = Counter(elem[1] for elem in loop_dists)
-        for i in range(0, (list(binary_class_counts.values())[0]-contador_first_class[list(binary_class_counts.keys())[0]])):
-            pred_dist_hist.append((minEnd, list(binary_class_counts.keys())[0]))
-            
-        contador_second_class = Counter(elem[1] for elem in loop_dists)
-        for i in range(0, (list(binary_class_counts.values())[1]-contador_second_class[list(binary_class_counts.keys())[1]])):
-            pred_dist_hist.append((maxEnd, list(binary_class_counts.keys())[1]))
+        pred_dist_hist = loop_dists.copy()
+        pred_dist_hist += (list(binary_class_counts.values())[0]-Counter(elem[1] for elem in loop_dists)[list(binary_class_counts.keys())[0]]) * [(minEnd, list(binary_class_counts.keys())[0])]
+        pred_dist_hist += (list(binary_class_counts.values())[1]-Counter(elem[1] for elem in loop_dists)[list(binary_class_counts.keys())[1]]) * [(maxEnd, list(binary_class_counts.keys())[1])]
+
         
         quality = RandomShapeletTransform.calc_info_gain(pred_dist_hist, binary_class_counts, num_ins)
         if quality > bsf_quality:
             return False, quality
         
         pred_dist_hist = loop_dists.copy()
-        contador_first_class = Counter(elem[1] for elem in loop_dists)
-        for i in range(0, (list(binary_class_counts.values())[0]-contador_first_class[list(binary_class_counts.keys())[0]])):
-            pred_dist_hist.append((maxEnd, list(binary_class_counts.keys())[0]))
-            
-        contador_second_class = Counter(elem[1] for elem in loop_dists)
-        for i in range(0, (list(binary_class_counts.values())[1]-contador_second_class[list(binary_class_counts.keys())[1]])):
-            pred_dist_hist.append((minEnd, list(binary_class_counts.keys())[1]))
+        pred_dist_hist += (list(binary_class_counts.values())[0]-Counter(elem[1] for elem in loop_dists)[list(binary_class_counts.keys())[0]]) * [(maxEnd, list(binary_class_counts.keys())[0])]
+        pred_dist_hist += (list(binary_class_counts.values())[1]-Counter(elem[1] for elem in loop_dists)[list(binary_class_counts.keys())[1]]) * [(minEnd, list(binary_class_counts.keys())[1])]
+
             
         quality = RandomShapeletTransform.calc_info_gain(pred_dist_hist, binary_class_counts, num_ins)
         if quality > bsf_quality:
@@ -503,12 +478,12 @@ class Shapelet:
 
 if __name__ == "__main__":
     tiempo_comienzo = time.time()
-    dataset = "GunPoint"
+    dataset = "WormsTwoClass"
     train_x, train_y = load_from_tsfile_to_dataframe("/home/david/sktime-datasets/" + dataset + "/" + dataset + "_TRAIN.ts")
     test_x, test_y = load_from_tsfile_to_dataframe("/home/david/sktime-datasets/" + dataset + "/" + dataset + "_TEST.ts")
 
     pipeline = Pipeline([
-        ('st', RandomShapeletTransform(type_shapelet="Random", min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=5, num_shapelets_to_sample_per_case=3, verbose=True)),
+        ('st', RandomShapeletTransform(type_shapelet="Random", min_shapelet_length=10, max_shapelet_length=12, num_cases_to_sample=10, num_shapelets_to_sample_per_case=3, verbose=True)),
         #('st', RandomShapeletTransform(type_shapelet="Contracted", time_limit_in_mins=0.2, min_shapelet_length=10, max_shapelet_length=12, num_shapelets_to_sample_per_case=3, verbose=True)),
         ('rf', RandomForestClassifier(random_state=0)),
     ])
