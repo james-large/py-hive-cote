@@ -8,6 +8,8 @@ from sklearn.base import TransformerMixin
 from operator import itemgetter
 from collections import Counter
 import warnings
+
+from distances.distance import DISTANCE_MEASURE
 #from ensemble import ShapeletForestClassifier
 
 warnings.filterwarnings("ignore", category=FutureWarning)

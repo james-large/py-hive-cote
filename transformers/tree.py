@@ -17,14 +17,14 @@
 
 import numpy as np
 
-from wildboar._tree_builder import ShapeletTreeBuilder
-from wildboar._tree_builder import ShapeletTreePredictor
+from distances._tree_builder import ShapeletTreeBuilder
+from distances._tree_builder import ShapeletTreePredictor
 
 from sklearn.base import ClassifierMixin
 from sklearn.base import BaseEstimator
 from sklearn.utils import check_random_state
 from sklearn.utils import check_array
-from wildboar.distance import DISTANCE_MEASURE
+from distances.distance import DISTANCE_MEASURE
 
 __all__ = ["ShapeletTreeClassifier"]
 
@@ -191,7 +191,7 @@ class ShapeletTreeClassifier(BaseEstimator, ClassifierMixin):
         )
 
         self.root_node_ = tree_builder.build_tree()
-        print(self.root_node_.shapelet.array)
+#        print(self.root_node_.shapelet.array)
         return self
 
     def predict(self, X, check_input=True):

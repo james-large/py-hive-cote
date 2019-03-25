@@ -161,7 +161,7 @@ for docname in standard_docs:
             detected_docs.append(filename)
 datafiles.append(('.', detected_docs))
 
-init_py_path = os.path.join(DISTNAME, '__init__.py')
+init_py_path = '_version.py'
 version = '0.0.unknown'
 try:
     with open(init_py_path) as f:
@@ -210,6 +210,12 @@ ext_module_impurity = declare_cython_extension(
     use_openmp=False,
     include_dirs=my_include_dirs)
 
+ext_module_tree_builder = declare_cython_extension(
+    "distances._tree_builder",
+    use_math=True,
+    use_openmp=False,
+    include_dirs=my_include_dirs)
+
 ext_module_distance_api = declare_cython_extension(
     "distances.distance",
     use_math=False,
@@ -225,6 +231,7 @@ cython_ext_modules = [
     ext_module_dtw_distance,
     ext_module_distance_api,
     ext_module_impurity,
+    ext_module_tree_builder,
 ]
 
 my_ext_modules = cythonize(

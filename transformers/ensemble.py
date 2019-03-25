@@ -21,7 +21,8 @@ class ShapeletForestClassifier(BaseEstimator, ClassifierMixin):
                  metric_params=None,
                  bootstrap=True,
                  n_jobs=None,
-                 random_state=None):
+                 dim_to_use = 0,
+                 seed=0):
         """A shapelet forest classifier
         """
         self.n_estimators = n_estimators
@@ -34,13 +35,16 @@ class ShapeletForestClassifier(BaseEstimator, ClassifierMixin):
         self.max_shapelet_size = max_shapelet_size
         self.metric = metric
         self.metric_params = metric_params
-        self.random_state = random_state
+        self.seed = seed
+        self.dim_to_use = dim_to_use
 
     def predict(self, X, check_input=True):
+        X = np.array([np.asarray(x) for x in X.iloc[:, self.dim_to_use]])
         return self.classes_[np.argmax(
             self.predict_proba(X, check_input=check_input), axis=1)]
 
     def predict_proba(self, X, check_input=True):
+        
         if X.ndim < 2 or X.ndim > 3:
             raise ValueError("illegal input dimensions X.ndim ({})".format(
                 X.ndim))
@@ -68,7 +72,8 @@ class ShapeletForestClassifier(BaseEstimator, ClassifierMixin):
     def fit(self, X, y, sample_weight=None, check_input=True):
         """Fit a random shapelet forest classifier
         """
-        random_state = check_random_state(self.random_state)
+        X = np.array([np.asarray(x) for x in X.iloc[:, self.dim_to_use]])
+        seed = check_random_state(self.seed)
         if check_input:
             X = check_array(X, dtype=np.float64, allow_nd=True, order="C")
             y = check_array(y, ensure_2d=False)
@@ -111,7 +116,7 @@ class ShapeletForestClassifier(BaseEstimator, ClassifierMixin):
             max_shapelet_size=self.max_shapelet_size,
             metric=self.metric,
             metric_params=self.metric_params,
-            random_state=random_state,
+            random_state=seed,
         )
 #        print(shapelet_tree_classifier)
 
@@ -123,7 +128,7 @@ class ShapeletForestClassifier(BaseEstimator, ClassifierMixin):
             bootstrap=self.bootstrap,
             n_jobs=self.n_jobs,
             n_estimators=self.n_estimators,
-            random_state=self.random_state,
+            random_state=self.seed,
         )
         X = X.reshape(n_samples, n_dims * self.n_timestep_)
         self.bagging_classifier_.fit(X, y, sample_weight=sample_weight)
