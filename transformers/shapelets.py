@@ -8,7 +8,8 @@ from sklearn.base import TransformerMixin
 from operator import itemgetter
 from collections import Counter
 import warnings
-import pickle
+#from ensemble import ShapeletForestClassifier
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
@@ -293,20 +294,21 @@ class RandomShapeletTransform(TransformerMixin):
         # sort all shapelets by quality
         all_shapelets.sort(key=lambda x: x.info_gain, reverse=True)
         
-        # we keep the best num_shapelets_to_trim_to shapelets, defined by the user.
+        # we keep those shapelets with good quality.
         all_shapelets =  list(filter(lambda x: x.info_gain != -1,  all_shapelets))
+                
+        # moved to end as it is now possible to visit the same series multiple times, and a better series may be found in the second visit that removes
+        # the best from the first (and then means previously similar shapelets with that may again be eligible)
+        if self.remove_self_similar:
+            all_shapelets = RandomShapeletTransform.remove_self_similar(all_shapelets)
+            
+        # we keep the best num_shapelets_to_trim_to shapelets, defined by the user.
         if len(all_shapelets) > self.num_shapelets_to_trim_to:
             all_shapelets = all_shapelets[:self.num_shapelets_to_trim_to]
             
 #        pickle.dump(all_shapelets, open("./all_shapelets.p", "wb"))
 #        all_shapelets = pickle.load( open( "./all_shapelets.p", "rb" ))
-        # moved to end as it is now possible to visit the same series multiple times, and a better series may be found in the second visit that removes
-        # the best from the first (and then means previously similar shapelets with that may again be eligible)
-        if self.remove_self_similar:
-            all_shapelets = RandomShapeletTransform.remove_self_similar(all_shapelets)
-
-        # for x in all_shapelets:
-        #     print(x)
+        
         self.shapelets = all_shapelets
 
     # two "self-similar" shapelets are subsequences from the same series that are overlapping. This method
